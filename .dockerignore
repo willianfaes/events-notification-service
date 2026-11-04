@@ -1,0 +1,8 @@
+# Keep local-only files out of the build context; the Dockerfile only needs pom.xml and src/.
+.git
+.github
+.githooks
+.idea
+.mvn
+target
+**/application-local.properties
