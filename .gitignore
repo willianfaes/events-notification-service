@@ -32,3 +32,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Local config (copy of application-local.properties.example) ###
+src/main/resources/application-local.properties
