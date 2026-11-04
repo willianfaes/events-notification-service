@@ -1,0 +1,3 @@
+# Copy to application-local.properties (not versioned). The url and username in application.properties are already
+# right for local. Keep this password equal to DB_PASSWORD in the API's .env.
+spring.datasource.password=changeme
