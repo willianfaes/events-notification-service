@@ -29,3 +29,60 @@ jobs:
 
       - name: Build and test
         run: mvn -B clean verify
+
+  # Publishes the image and deploys it on the EC2 host owned by willianfaes/events-manager-api, whose pipeline sends the
+  # compose file and deploy.sh: the API is deployed first. Only on pushes to main, and only while the repository
+  # variable DEPLOY_ENABLED is true (the host does not always exist).
+  deploy:
+    name: Deploy
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: eu-north-1
+      IMAGE_REPOSITORY: events-notification-service
+    steps:
+      - uses: actions/checkout@v4
+
+      # The second access key of the IAM user events-ci (events-manager-api, infra/cicd.tf): the organization SCP
+      # denies the OIDC provider.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      # The Dockerfile pulls base images from Docker Hub, which rate limits anonymous pulls.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Tags are immutable, so re-running the same commit must not push again.
+      - name: Publish the image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          echo "IMAGE_TAG=${TAG}" >> "$GITHUB_ENV"
+          if aws ecr describe-images --repository-name "$IMAGE_REPOSITORY" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+            echo "Image ${TAG} is already published, skipping the push"
+          else
+            docker build --platform linux/amd64 -t "${REGISTRY}/${IMAGE_REPOSITORY}:${TAG}" .
+            docker push "${REGISTRY}/${IMAGE_REPOSITORY}:${TAG}"
+          fi
+
+      - name: Deploy
+        run: deploy/ssm-run.sh "/opt/events-manager/deploy.sh events-notification ${IMAGE_TAG}"
