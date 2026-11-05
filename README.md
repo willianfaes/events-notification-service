@@ -46,6 +46,10 @@ Register for an event through the API's Swagger and the fake e-mail shows up in 
 
 Registrations made before the API started publishing messages are not in the topic, so they are missing from the rebuilt counts.
 
+## Deployment
+
+It runs on the API's EC2 host, next to the broker, from the same `docker-compose.prod.yml` (see the API's [`infra/README.md`](https://github.com/willianfaes/events-manager-api/blob/main/infra/README.md)). On a push to `main`, while the repository variable `DEPLOY_ENABLED` is `true`, the pipeline publishes the image to ECR (`events-notification-service`, tagged with the commit) and runs `deploy.sh events-notification <tag>` on the host through SSM. The API's pipeline owns the host files, so the API is deployed first; each pipeline only changes its own service's image.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
