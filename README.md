@@ -7,7 +7,7 @@ Two consumer groups read the same topic, each with its own offsets:
 - **`notification`** "sends" a confirmation or cancellation e-mail. It is a log line addressed to the user's `sub`: the message never carries the e-mail address, and the service does not call Cognito.
 - **`statistics`** keeps the number of active registrations per event in `event_stats`. Each applied message id goes into `processed_messages` in the same transaction, so a message delivered twice is counted once.
 
-A message that cannot be processed goes to `registration-events-dlt` with the reason in its headers, and the consumer moves on. A WARN in the log says where it came from.
+A message that cannot be processed goes to `registration-events-dlt` with the reason in its headers, and the consumer moves on. A WARN in the log says where it came from. A database that is down is not the message's fault: the message is retried until the database is back, so `statistics` stops on that partition instead of losing a count.
 
 Spring Boot 4.1, Java 21, Spring for Apache Kafka, Spring Data JPA, Flyway, PostgreSQL. Tests run against real Kafka and Postgres containers (Testcontainers).
 
