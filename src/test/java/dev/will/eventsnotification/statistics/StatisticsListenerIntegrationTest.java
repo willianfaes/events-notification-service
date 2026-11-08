@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 // Messages of one event share a key, so they are consumed in the order they were sent. Each test waits until its last
 // message is processed and only then checks the counter: waiting on the counter itself could pass halfway through.
@@ -18,9 +19,13 @@ class StatisticsListenerIntegrationTest extends AbstractIntegrationTest {
 
     private static final String TOPIC = "registration-events";
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration OUTAGE = Duration.ofSeconds(15);
 
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
+
+    @Autowired
+    private PostgreSQLContainer postgres;
 
     @Autowired
     private EventStatsRepository eventStatsRepository;
@@ -55,6 +60,24 @@ class StatisticsListenerIntegrationTest extends AbstractIntegrationTest {
         awaitProcessed(last);
         then(eventStatsRepository.findById(eventId)).hasValueSatisfying(stats ->
                 then(stats.getActiveRegistrations()).isEqualTo(2));
+    }
+
+    // The outage outlasts the default retries (three attempts, each waiting up to two seconds for a connection with the
+    // pool settings of AbstractIntegrationTest), so a message that gave up would be in the dead letter topic by then.
+    @Test
+    @DisplayName("Given the database is down for a while, then the message waits for it and is counted once it is back")
+    void shouldWaitForTheDatabaseInsteadOfGivingUp() {
+        UUID messageId = UUID.randomUUID();
+
+        postgres.getDockerClient().pauseContainerCmd(postgres.getContainerId()).exec();
+        try {
+            publish(messageId, "REGISTRATION_CREATED", randomEventId());
+            await().pollDelay(OUTAGE).atMost(OUTAGE.plusSeconds(1)).until(() -> true);
+        } finally {
+            postgres.getDockerClient().unpauseContainerCmd(postgres.getContainerId()).exec();
+        }
+
+        await().atMost(Duration.ofSeconds(30)).until(() -> processedMessageRepository.existsById(messageId));
     }
 
     // The same JSON the API publishes, with the event id as key.
